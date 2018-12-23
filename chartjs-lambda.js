@@ -6,23 +6,24 @@ const fs = require('fs');
 const aws = require('aws-sdk');
 const s3 = new aws.S3();
 
+PDFDocument = require ('pdfkit');
+
 // bug workaround: https://github.com/vmpowerio/chartjs-node/issues/26
 if (global.CanvasGradient === undefined) {
   global.CanvasGradient = function() {};
 }
 
-async function storeImage(buffer) {
-  const imageFileName = "image.png";
+async function storeFile(buffer, filename) {
   console.log("Storing file to: " + process.env.BUCKET_NAME);
   const object = {
       Bucket: process.env.BUCKET_NAME,
-      Key: imageFileName,
+      Key: filename,
       Body: buffer
   };
 
   try {
     await s3.putObject(object).promise();
-    return imageFileName;
+    return filename;
   } catch(err) {
     console.error("Failed to store image: " + err);
     throw err;
@@ -81,8 +82,20 @@ async function renderChartWithChartJS() {
 
 module.exports.renderChart = async function(event, context, callback) {
   const buffer = await renderChartWithChartJS();
-  fs.writeFileSync('/tmp/chartjs-lambda.png', buffer);
-  storeImage(buffer);
+  storeFile(buffer, 'out.png');
+
+  let doc = new PDFDocument;
+  let buffers = [];
+  doc.on('data', buffers.push.bind(buffers));
+  doc.on('end', () => {
+
+      let pdfData = Buffer.concat(buffers);
+      storeFile(pdfData, 'out.pdf');
+  });
+
+  doc.image(buffer, 50, 200, {width: 450});
+
+  doc.end();
 
   const response = {
     statusCode: 200,
